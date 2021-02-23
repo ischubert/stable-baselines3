@@ -15,6 +15,9 @@ class GoalSelectionStrategy(Enum):
     FINAL = 1
     # Select a goal that was achieved in the episode
     EPISODE = 2
+    # Select a goal randomly that was DESIRED 
+    # (not actually achieved) at any past point
+    PAST_DESIRED = 3
 
 
 # For convenience
@@ -23,4 +26,5 @@ KEY_TO_GOAL_STRATEGY = {
     "future": GoalSelectionStrategy.FUTURE,
     "final": GoalSelectionStrategy.FINAL,
     "episode": GoalSelectionStrategy.EPISODE,
+    "past_desired": GoalSelectionStrategy.PAST_DESIRED,
 }

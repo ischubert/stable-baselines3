@@ -61,12 +61,12 @@ class HerReplayBuffer(ReplayBuffer):
         input_shape = {
             "observation": (self.env.num_envs, self.env.obs_dim),
             "achieved_goal": (self.env.num_envs, self.env.goal_dim),
-            "desired_goal": (self.env.num_envs, self.env.goal_dim),
+            "desired_goal": (self.env.num_envs, self.env.desired_goal_dim),
             "action": (self.action_dim,),
             "reward": (1,),
             "next_obs": (self.env.num_envs, self.env.obs_dim),
             "next_achieved_goal": (self.env.num_envs, self.env.goal_dim),
-            "next_desired_goal": (self.env.num_envs, self.env.goal_dim),
+            "next_desired_goal": (self.env.num_envs, self.env.desired_goal_dim),
             "done": (1,),
         }
         self.buffer = {
@@ -188,6 +188,13 @@ class HerReplayBuffer(ReplayBuffer):
             # replay with random state which comes from the same episode as current transition
             transitions_indices = np.random.randint(self.episode_lengths[her_episode_indices])
 
+        elif self.goal_selection_strategy == GoalSelectionStrategy.PAST_DESIRED:
+            # _desired_goal_storage only contains single transition out of each episode
+            transitions_indices = np.zeros(len(her_indices), dtype=int)
+
+            # ...but crucially, use the desired goal from this transition
+            return self._desired_goal_storage.buffer["desired_goal"][her_episode_indices, transitions_indices]
+
         else:
             raise ValueError(f"Strategy {self.goal_selection_strategy} for sampling goals not supported!")
 
@@ -261,7 +268,21 @@ class HerReplayBuffer(ReplayBuffer):
         transitions = {key: self.buffer[key][episode_indices, transitions_indices].copy() for key in self.buffer.keys()}
 
         # sample new desired goals and relabel the transitions
-        new_goals = self.sample_goals(episode_indices, her_indices, transitions_indices)
+        if self.goal_selection_strategy == GoalSelectionStrategy.PAST_DESIRED:
+            # In this case, sample episode_length episode indices from self._desired_goal_storage
+            # Do not sample the episode with index `self._desired_goal_storage.pos` as the episode is invalid
+            episode_length = self.episode_lengths[0]
+            if self._desired_goal_storage.full:
+                desired_goal_episode_indices = (
+                    np.random.randint(1, self._desired_goal_storage.n_episodes_stored, n_sampled_goal) + self._desired_goal_storage.pos
+                ) % self._desired_goal_storage.n_episodes_stored
+            else:
+                desired_goal_episode_indices = np.random.randint(0, self._desired_goal_storage.n_episodes_stored, n_sampled_goal)
+            desired_goal_episode_indices = np.repeat(desired_goal_episode_indices, episode_length)
+            new_goals = self.sample_goals(desired_goal_episode_indices, her_indices, transitions_indices)
+        else:
+            new_goals = self.sample_goals(episode_indices, her_indices, transitions_indices)
+
         transitions["desired_goal"][her_indices] = new_goals
 
         # Convert info buffer to numpy array

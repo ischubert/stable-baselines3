@@ -24,9 +24,11 @@ class ObsDictWrapper(VecEnvWrapper):
         if isinstance(self.spaces[0], spaces.Discrete):
             self.obs_dim = 1
             self.goal_dim = 1
+            self.desired_goal_dim = 1
         else:
             self.obs_dim = venv.observation_space.spaces["observation"].shape[0]
             self.goal_dim = venv.observation_space.spaces["achieved_goal"].shape[0]
+            self.desired_goal_dim = venv.observation_space.spaces["desired_goal"].shape[0]
 
         # new observation space with concatenated observation and (desired) goal
         # for the different types of spaces
@@ -39,7 +41,7 @@ class ObsDictWrapper(VecEnvWrapper):
             )
             self.observation_space = spaces.Box(low_values, high_values, dtype=np.float32)
         elif isinstance(self.spaces[0], spaces.MultiBinary):
-            total_dim = self.obs_dim + self.goal_dim
+            total_dim = self.obs_dim + self.desired_goal_dim
             self.observation_space = spaces.MultiBinary(total_dim)
         elif isinstance(self.spaces[0], spaces.Discrete):
             dimensions = [venv.observation_space.spaces["observation"].n, venv.observation_space.spaces["desired_goal"].n]

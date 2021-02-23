@@ -81,6 +81,7 @@ class HER(BaseAlgorithm):
         env: Union[GymEnv, str],
         model_class: Type[OffPolicyAlgorithm],
         n_sampled_goal: int = 4,
+        desired_goal_buffer_size: int = int(1e5),
         goal_selection_strategy: Union[GoalSelectionStrategy, str] = "future",
         online_sampling: bool = False,
         max_episode_length: Optional[int] = None,
@@ -122,6 +123,9 @@ class HER(BaseAlgorithm):
             self.goal_selection_strategy, GoalSelectionStrategy
         ), f"Invalid goal selection strategy, please use one of {list(GoalSelectionStrategy)}"
 
+        if self.goal_selection_strategy == GoalSelectionStrategy.PAST_DESIRED:
+            assert not online_sampling, "GoalSelectionStrategy.PAST_DESIRED not implemented for online sampling"
+
         self.n_sampled_goal = n_sampled_goal
         # if we sample her transitions online use custom replay buffer
         self.online_sampling = online_sampling
@@ -143,6 +147,23 @@ class HER(BaseAlgorithm):
             self.n_envs,
             self.her_ratio,  # pytype: disable=wrong-arg-types
         )
+
+        # For GoalSelectionStrategy.PAST_DESIRED, add buffer with episode length 1
+        # to save the desired_goal of each episode
+        if self.goal_selection_strategy == GoalSelectionStrategy.PAST_DESIRED:
+            self._desired_goal_storage = HerReplayBuffer(
+                self.env,
+                desired_goal_buffer_size,
+                1,
+                self.goal_selection_strategy,
+                self.env.observation_space,
+                self.env.action_space,
+                self.device,
+                self.n_envs,
+                self.her_ratio,  # pytype: disable=wrong-arg-types
+            )
+
+            self._episode_storage._desired_goal_storage = self._desired_goal_storage
 
         # counter for steps in episode
         self.episode_steps = 0
@@ -324,6 +345,12 @@ class HER(BaseAlgorithm):
                     self.replay_buffer.add(flattened_obs, flattened_next_obs, buffer_action, reward_, done)
                     # add current transition to episode storage
                     self._episode_storage.add(self._last_original_obs, next_obs, buffer_action, reward_, done, infos)
+
+                if self.goal_selection_strategy == GoalSelectionStrategy.PAST_DESIRED and done:
+                    # Add last step of episode to self._desired_goal_storage
+                    self._desired_goal_storage.add(self._last_original_obs, next_obs, buffer_action, reward_, done, infos)
+                    # self._desired_goal_storage has episode length 1: Episode is stored immediately
+                    self._desired_goal_storage.store_episode()
 
                 self._last_obs = new_obs
                 self.model._last_obs = self._last_obs
