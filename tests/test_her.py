@@ -313,9 +313,20 @@ def test_get_max_episode_length():
     HER("MlpPolicy", env, DQN)
 
 
-@pytest.mark.parametrize("online_sampling", [False, True])
+# online sampling is not implemented for past_desired (error message is in place
+# to inform user) => test past_desired with online_sampling=False only
+@pytest.mark.parametrize(
+    "online_sampling,goal_selection_strategy,total_timesteps",
+    [
+        (False, "future", 5000),
+        (True, "future", 5000),
+        (False, "past_desired", 50000) # past_desired is expected to need more steps here
+    ])
 @pytest.mark.parametrize("n_bits", [10])
-def test_performance_her(online_sampling, n_bits):
+@pytest.mark.parametrize("n_sampled_goal", [0, 5])
+def test_performance_her(
+        online_sampling, n_bits, goal_selection_strategy, total_timesteps, n_sampled_goal
+):
     """
     That DQN+HER can solve BitFlippingEnv.
     It should not work when n_sampled_goal=0 (DQN alone).
@@ -326,8 +337,8 @@ def test_performance_her(online_sampling, n_bits):
         "MlpPolicy",
         env,
         DQN,
-        n_sampled_goal=5,
-        goal_selection_strategy="future",
+        n_sampled_goal=n_sampled_goal,
+        goal_selection_strategy=goal_selection_strategy,
         online_sampling=online_sampling,
         verbose=1,
         learning_rate=5e-4,
@@ -340,7 +351,11 @@ def test_performance_her(online_sampling, n_bits):
         batch_size=32,
     )
 
-    model.learn(total_timesteps=5000, log_interval=50)
+    model.learn(total_timesteps=total_timesteps, log_interval=int(total_timesteps/100))
 
-    # 90% training success
-    assert np.mean(model.ep_success_buffer) > 0.90
+    if n_sampled_goal > 0:
+        # 90% training success
+        assert np.mean(model.ep_success_buffer) > 0.90
+    else:
+        # 90% training failure
+        assert np.mean(model.ep_success_buffer) < 0.10
