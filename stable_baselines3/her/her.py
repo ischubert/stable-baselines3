@@ -112,6 +112,7 @@ class HER(BaseAlgorithm):
         self.verbose = self.model.verbose
         self.tensorboard_log = self.model.tensorboard_log
 
+        self.desired_goal_buffer_size = desired_goal_buffer_size
         # convert goal_selection_strategy into GoalSelectionStrategy if string
         if isinstance(goal_selection_strategy, str):
             self.goal_selection_strategy = KEY_TO_GOAL_STRATEGY[goal_selection_strategy.lower()]
@@ -453,6 +454,7 @@ class HER(BaseAlgorithm):
         self.model.online_sampling = self.online_sampling
         self.model.model_class = self.model_class
         self.model.max_episode_length = self.max_episode_length
+        self.model.desired_goal_buffer_size = self.desired_goal_buffer_size
 
         self.model.save(path, exclude, include)
 
@@ -522,6 +524,7 @@ class HER(BaseAlgorithm):
             env=env,
             model_class=data["model_class"],
             n_sampled_goal=data["n_sampled_goal"],
+            desired_goal_buffer_size=data["desired_goal_buffer_size"],
             goal_selection_strategy=data["goal_selection_strategy"],
             online_sampling=data["online_sampling"],
             max_episode_length=data["max_episode_length"],
