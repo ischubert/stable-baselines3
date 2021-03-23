@@ -188,7 +188,10 @@ class HerReplayBuffer(ReplayBuffer):
             # replay with random state which comes from the same episode as current transition
             transitions_indices = np.random.randint(self.episode_lengths[her_episode_indices])
 
-        elif self.goal_selection_strategy == GoalSelectionStrategy.PAST_DESIRED:
+        elif self.goal_selection_strategy in [
+            GoalSelectionStrategy.PAST_DESIRED,
+            GoalSelectionStrategy.PAST_DESIRED_SUCCESS
+        ]:
             # _desired_goal_storage only contains single transition out of each episode
             transitions_indices = np.zeros(len(her_indices), dtype=int)
 
@@ -230,10 +233,19 @@ class HerReplayBuffer(ReplayBuffer):
         else:
             assert maybe_vec_env is None, "Transitions must be stored unnormalized in the replay buffer"
             assert n_sampled_goal is not None, "No n_sampled_goal specified for offline sampling of HER transitions"
+            if self.goal_selection_strategy == GoalSelectionStrategy.PAST_DESIRED_SUCCESS:
+                assert self.n_sampled_goal_preselection is not None, "Using PAST_DESIRED_SUCCESS strategy, but n_sampled_goal_preselection not given"
+                n_sampled_goal_preselection = self.n_sampled_goal_preselection
+            else:
+                # TODO remove this later
+                assert self.n_sampled_goal_preselection is None, "Not using PAST_DESIRED_SUCCESS strategy, but n_sampled_goal_preselection given"
+                # In this case there is no preselection
+                n_sampled_goal_preselection = n_sampled_goal
+                
             # Offline sampling: there is only one episode stored
             episode_length = self.episode_lengths[0]
-            # we sample n_sampled_goal per timestep in the episode (only one is stored).
-            episode_indices = np.tile(0, (episode_length * n_sampled_goal))
+            # we sample n_sampled_goal_preselection per timestep in the episode (only one is stored).
+            episode_indices = np.tile(0, (episode_length * n_sampled_goal_preselection))
             # we only sample virtual transitions
             # as real transitions are already stored in the replay buffer
             her_indices = np.arange(len(episode_indices))
@@ -257,10 +269,10 @@ class HerReplayBuffer(ReplayBuffer):
                 # no virtual transitions are created in that case
                 return np.zeros(0), np.zeros(0), np.zeros(0), np.zeros(0)
             else:
-                # Repeat every transition index n_sampled_goals times
-                # to sample n_sampled_goal per timestep in the episode (only one is stored).
+                # Repeat every transition index n_sampled_goal_preselection times
+                # to sample n_sampled_goal_preselection per timestep in the episode (only one is stored).
                 # Now with the corrected episode length when using "future" strategy
-                transitions_indices = np.tile(np.arange(ep_lengths[0]), n_sampled_goal)
+                transitions_indices = np.tile(np.arange(ep_lengths[0]), n_sampled_goal_preselection)
                 episode_indices = episode_indices[transitions_indices]
                 her_indices = np.arange(len(episode_indices))
 
@@ -268,30 +280,47 @@ class HerReplayBuffer(ReplayBuffer):
         transitions = {key: self.buffer[key][episode_indices, transitions_indices].copy() for key in self.buffer.keys()}
 
         # sample new desired goals and relabel the transitions
-        if self.goal_selection_strategy == GoalSelectionStrategy.PAST_DESIRED:
+        if self.goal_selection_strategy in [
+            GoalSelectionStrategy.PAST_DESIRED,
+            GoalSelectionStrategy.PAST_DESIRED_SUCCESS
+        ]:
             # In this case, sample episode_length episode indices from self._desired_goal_storage
             # Do not sample the episode with index `self._desired_goal_storage.pos` as the episode is invalid
             episode_length = self.episode_lengths[0]
             if self._desired_goal_storage.full:
                 desired_goal_episode_indices = (
-                    np.random.randint(1, self._desired_goal_storage.n_episodes_stored, n_sampled_goal) + self._desired_goal_storage.pos
+                    np.random.randint(
+                        1,
+                        self._desired_goal_storage.n_episodes_stored,
+                        n_sampled_goal_preselection
+                    ) + self._desired_goal_storage.pos
                 ) % self._desired_goal_storage.n_episodes_stored
             else:
-                desired_goal_episode_indices = np.random.randint(0, self._desired_goal_storage.n_episodes_stored, n_sampled_goal)
+                desired_goal_episode_indices = np.random.randint(0, self._desired_goal_storage.n_episodes_stored, n_sampled_goal_preselection)
+
             desired_goal_episode_indices = np.repeat(desired_goal_episode_indices, episode_length)
             new_goals = self.sample_goals(desired_goal_episode_indices, her_indices, transitions_indices)
+            # Convert info buffer to numpy array
+            # This fixes a bug that prevented the algorithm
+            # from using the info during replay (-> no replay with encoding)
+            # TODO possibly not the correct solution to override the original info in self.info_buffer?
+            transitions["info"] = np.array(
+                [
+                    self._desired_goal_storage.info_buffer[episode_idx][0]
+                    for episode_idx in desired_goal_episode_indices
+                ]
+            )
         else:
             new_goals = self.sample_goals(episode_indices, her_indices, transitions_indices)
+            # Convert info buffer to numpy array
+            transitions["info"] = np.array(
+                [
+                    self.info_buffer[episode_idx][transition_idx]
+                    for episode_idx, transition_idx in zip(episode_indices, transitions_indices)
+                ]
+            )
 
         transitions["desired_goal"][her_indices] = new_goals
-
-        # Convert info buffer to numpy array
-        transitions["info"] = np.array(
-            [
-                self.info_buffer[episode_idx][transition_idx]
-                for episode_idx, transition_idx in zip(episode_indices, transitions_indices)
-            ]
-        )
 
         # Vectorized computation of the new reward
         transitions["reward"][her_indices, 0] = self.env.env_method(
@@ -307,6 +336,43 @@ class HerReplayBuffer(ReplayBuffer):
             transitions["desired_goal"][her_indices, 0],
             transitions["info"][her_indices, 0],
         )
+
+        for key in transitions.keys():
+            assert len(transitions[key]) == episode_length*n_sampled_goal_preselection
+        
+        # When using GoalSelectionStrategy.PAST_DESIRED_SUCCESS, this selection is filtered again
+        if self.goal_selection_strategy == GoalSelectionStrategy.PAST_DESIRED_SUCCESS:
+            assert n_sampled_goal < n_sampled_goal_preselection
+            assert transitions['reward'].shape == (episode_length*n_sampled_goal_preselection, 1)
+            reward_per_episode = np.sum(
+                transitions['reward'].reshape(n_sampled_goal_preselection, episode_length), axis=-1
+            )
+            # returns unique reward_per_episode (sorted in ascending order)
+            uniques, unique_indices = np.unique(reward_per_episode, return_index=True)
+
+            if len(uniques) >= n_sampled_goal:
+                # preferably, select n_sampled_goal largest unique
+                winner_episodes = unique_indices[-n_sampled_goal:]
+            else:
+                # if not possible, select n_sampled_goal largest
+                winner_episodes = np.argsort(reward_per_episode)[-n_sampled_goal:]
+
+            keep_mask = np.zeros(n_sampled_goal_preselection, dtype=bool)
+            keep_mask[winner_episodes] = True
+            keep_mask = np.repeat(keep_mask, episode_length)
+            # TODO control using verbosity flag
+            print(f'Unique episode rewards on preselection: {len(uniques)}')
+            print(f'Mean replay episode reward before selection: {np.mean(reward_per_episode)}')
+            
+            for key in transitions.keys():
+                transitions[key] = transitions[key][keep_mask]
+
+            print(f'Mean replay episode reward after selection: {np.sum(transitions["reward"])/n_sampled_goal}')
+        else:
+            assert n_sampled_goal_preselection == n_sampled_goal
+        
+        for key in transitions.keys():
+            assert len(transitions[key]) == episode_length*n_sampled_goal
 
         # concatenate observation with (desired) goal
         observations = ObsDictWrapper.convert_dict(self._normalize_obs(transitions, maybe_vec_env))

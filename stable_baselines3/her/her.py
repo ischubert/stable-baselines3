@@ -81,6 +81,7 @@ class HER(BaseAlgorithm):
         env: Union[GymEnv, str],
         model_class: Type[OffPolicyAlgorithm],
         n_sampled_goal: int = 4,
+        n_sampled_goal_preselection: Optional[int] = None,
         desired_goal_buffer_size: int = int(1e5),
         goal_selection_strategy: Union[GoalSelectionStrategy, str] = "future",
         online_sampling: bool = False,
@@ -124,8 +125,8 @@ class HER(BaseAlgorithm):
             self.goal_selection_strategy, GoalSelectionStrategy
         ), f"Invalid goal selection strategy, please use one of {list(GoalSelectionStrategy)}"
 
-        if self.goal_selection_strategy == GoalSelectionStrategy.PAST_DESIRED:
-            assert not online_sampling, "GoalSelectionStrategy.PAST_DESIRED not implemented for online sampling"
+        if self.goal_selection_strategy in [GoalSelectionStrategy.PAST_DESIRED, GoalSelectionStrategy.PAST_DESIRED_SUCCESS]:
+            assert not online_sampling, "Selected GoalSelectionStrategy not implemented for online sampling"
 
         self.n_sampled_goal = n_sampled_goal
         # if we sample her transitions online use custom replay buffer
@@ -149,9 +150,9 @@ class HER(BaseAlgorithm):
             self.her_ratio,  # pytype: disable=wrong-arg-types
         )
 
-        # For GoalSelectionStrategy.PAST_DESIRED, add buffer with episode length 1
-        # to save the desired_goal of each episode
-        if self.goal_selection_strategy == GoalSelectionStrategy.PAST_DESIRED:
+        # For GoalSelectionStrategy.PAST_DESIRED, and GoalSelectionStrategy.PAST_DESIRED_SUCCESS,
+        # add buffer with episode length 1 to save the desired_goal of each episode
+        if self.goal_selection_strategy in [GoalSelectionStrategy.PAST_DESIRED, GoalSelectionStrategy.PAST_DESIRED_SUCCESS]:
             self._desired_goal_storage = HerReplayBuffer(
                 self.env,
                 desired_goal_buffer_size,
@@ -163,8 +164,10 @@ class HER(BaseAlgorithm):
                 self.n_envs,
                 self.her_ratio,  # pytype: disable=wrong-arg-types
             )
+            self.n_sampled_goal_preselection = n_sampled_goal_preselection
 
             self._episode_storage._desired_goal_storage = self._desired_goal_storage
+            self._episode_storage.n_sampled_goal_preselection = self.n_sampled_goal_preselection
 
         # counter for steps in episode
         self.episode_steps = 0
@@ -347,7 +350,10 @@ class HER(BaseAlgorithm):
                     # add current transition to episode storage
                     self._episode_storage.add(self._last_original_obs, next_obs, buffer_action, reward_, done, infos)
 
-                if self.goal_selection_strategy == GoalSelectionStrategy.PAST_DESIRED and done:
+                if self.goal_selection_strategy in [
+                    GoalSelectionStrategy.PAST_DESIRED,
+                    GoalSelectionStrategy.PAST_DESIRED_SUCCESS
+                ] and done:
                     # Add last step of episode to self._desired_goal_storage
                     self._desired_goal_storage.add(self._last_original_obs, next_obs, buffer_action, reward_, done, infos)
                     # self._desired_goal_storage has episode length 1: Episode is stored immediately
@@ -455,6 +461,7 @@ class HER(BaseAlgorithm):
         self.model.model_class = self.model_class
         self.model.max_episode_length = self.max_episode_length
         self.model.desired_goal_buffer_size = self.desired_goal_buffer_size
+        self.model.n_sampled_goal_preselection = self.n_sampled_goal_preselection
 
         self.model.save(path, exclude, include)
 
