@@ -237,7 +237,7 @@ class HerReplayBuffer(ReplayBuffer):
                 assert self.n_sampled_goal_preselection is not None, "Using PAST_DESIRED_SUCCESS strategy, but n_sampled_goal_preselection not given"
                 n_sampled_goal_preselection = self.n_sampled_goal_preselection
             else:
-                # TODO remove this later
+                
                 assert self.n_sampled_goal_preselection is None, "Not using PAST_DESIRED_SUCCESS strategy, but n_sampled_goal_preselection given"
                 # In this case there is no preselection
                 n_sampled_goal_preselection = n_sampled_goal
