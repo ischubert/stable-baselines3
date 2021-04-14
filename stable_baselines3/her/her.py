@@ -129,6 +129,7 @@ class HER(BaseAlgorithm):
             assert not online_sampling, "Selected GoalSelectionStrategy not implemented for online sampling"
 
         self.n_sampled_goal = n_sampled_goal
+        self.n_sampled_goal_preselection = n_sampled_goal_preselection
         # if we sample her transitions online use custom replay buffer
         self.online_sampling = online_sampling
         # compute ratio between HER replays and regular replays in percent for online HER sampling
@@ -150,6 +151,7 @@ class HER(BaseAlgorithm):
             self.her_ratio,  # pytype: disable=wrong-arg-types
         )
 
+        self._episode_storage.n_sampled_goal_preselection = self.n_sampled_goal_preselection
         # For GoalSelectionStrategy.PAST_DESIRED, and GoalSelectionStrategy.PAST_DESIRED_SUCCESS,
         # add buffer with episode length 1 to save the desired_goal of each episode
         if self.goal_selection_strategy in [GoalSelectionStrategy.PAST_DESIRED, GoalSelectionStrategy.PAST_DESIRED_SUCCESS]:
@@ -164,10 +166,7 @@ class HER(BaseAlgorithm):
                 self.n_envs,
                 self.her_ratio,  # pytype: disable=wrong-arg-types
             )
-            self.n_sampled_goal_preselection = n_sampled_goal_preselection
-
             self._episode_storage._desired_goal_storage = self._desired_goal_storage
-            self._episode_storage.n_sampled_goal_preselection = self.n_sampled_goal_preselection
 
         # counter for steps in episode
         self.episode_steps = 0
