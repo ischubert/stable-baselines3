@@ -338,7 +338,10 @@ class HerReplayBuffer(ReplayBuffer):
         )
 
         for key in transitions.keys():
-            assert len(transitions[key]) == episode_length*n_sampled_goal_preselection
+            if self.goal_selection_strategy == GoalSelectionStrategy.FUTURE:
+                assert len(transitions[key]) == (episode_length - 1)*n_sampled_goal_preselection
+            else:
+                assert len(transitions[key]) == episode_length*n_sampled_goal_preselection
         
         # When using GoalSelectionStrategy.PAST_DESIRED_SUCCESS, this selection is filtered again
         if self.goal_selection_strategy == GoalSelectionStrategy.PAST_DESIRED_SUCCESS:
@@ -372,7 +375,10 @@ class HerReplayBuffer(ReplayBuffer):
             assert n_sampled_goal_preselection == n_sampled_goal
         
         for key in transitions.keys():
-            assert len(transitions[key]) == episode_length*n_sampled_goal
+            if self.goal_selection_strategy == GoalSelectionStrategy.FUTURE:
+                assert len(transitions[key]) == (episode_length-1)*n_sampled_goal
+            else:
+                assert len(transitions[key]) == episode_length*n_sampled_goal
 
         # concatenate observation with (desired) goal
         observations = ObsDictWrapper.convert_dict(self._normalize_obs(transitions, maybe_vec_env))
