@@ -530,6 +530,7 @@ class HER(BaseAlgorithm):
             env=env,
             model_class=data["model_class"],
             n_sampled_goal=data["n_sampled_goal"],
+            n_sampled_goal_preselection=data["n_sampled_goal_preselection"],
             desired_goal_buffer_size=data["desired_goal_buffer_size"],
             goal_selection_strategy=data["goal_selection_strategy"],
             online_sampling=data["online_sampling"],
