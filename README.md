@@ -5,7 +5,7 @@
 
 **WARNING: Stable Baselines3 is currently in a beta version, breaking changes may occur before 1.0 is released**
 
-
+# THIS IS A FORK OF STABLE-BASELINES3 THAT IS MODIFIED AND APPENDED FOR L2E
 # Stable Baselines3
 
 Stable Baselines3 (SB3) is a set of reliable implementations of reinforcement learning algorithms in PyTorch. It is the next major version of [Stable Baselines](https://github.com/hill-a/stable-baselines).
